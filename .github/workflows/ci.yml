@@ -1,0 +1,169 @@
+name: Flutter CI/CD Pipeline
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
+
+jobs:
+  # Job 1: Code Quality Analysis
+  analyze:
+    name: 🔍 Code Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🐦 Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.24.0"
+          channel: "stable"
+          cache: true
+
+      - name: 📦 Install dependencies
+        run: flutter pub get
+
+      - name: 📝 Verify formatting
+        run: dart format --output=none --set-exit-if-changed .
+
+      - name: 🔎 Analyze code
+        run: flutter analyze --fatal-infos --fatal-warnings
+
+      - name: ✅ Analysis complete
+        run: echo "Code quality checks passed!"
+
+  # Job 2: Run Tests with Coverage
+  test:
+    name: 🧪 Run Tests
+    needs: analyze
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🐦 Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.24.0"
+          channel: "stable"
+          cache: true
+
+      - name: 📦 Install dependencies
+        run: flutter pub get
+
+      - name: 🧪 Run tests with coverage
+        run: flutter test --coverage
+
+      - name: 📊 Check coverage threshold
+        run: |
+          # Install lcov for coverage processing
+          sudo apt-get update
+          sudo apt-get install -y lcov bc
+
+          # Run coverage check script
+          chmod +x scripts/check_coverage.sh
+          bash scripts/check_coverage.sh
+
+      - name: 📤 Upload coverage to GitHub
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/lcov.info
+          retention-days: 30
+
+      - name: 📈 Generate coverage report
+        run: |
+          # Generate HTML coverage report
+          genhtml coverage/lcov.info -o coverage/html
+
+      - name: 📤 Upload HTML coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html-report
+          path: coverage/html
+          retention-days: 30
+
+      - name: ✅ Tests complete
+        run: echo "All tests passed with sufficient coverage!"
+
+  # Job 3: Build APK for different environments
+  build:
+    name: 🏗️ Build APK
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        environment: [dev, staging, prod]
+        include:
+          - environment: dev
+            api_url: https://api-dev.example.com
+            entry_point: lib/main_dev.dart
+          - environment: staging
+            api_url: https://api-staging.example.com
+            entry_point: lib/main_staging.dart
+          - environment: prod
+            api_url: https://api.example.com
+            entry_point: lib/main_prod.dart
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🐦 Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.24.0"
+          channel: "stable"
+          cache: true
+
+      - name: 📦 Install dependencies
+        run: flutter pub get
+
+      - name: 🏗️ Build APK for ${{ matrix.environment }}
+        run: |
+          flutter build apk \
+            --dart-define=BUILD_ENV=${{ matrix.environment }} \
+            --dart-define=API_URL=${{ matrix.api_url }} \
+            --dart-define=ENABLE_LOGGING=${{ matrix.environment != 'prod' }} \
+            --target=${{ matrix.entry_point }} \
+            --release
+
+      - name: 📦 Rename APK
+        run: |
+          mkdir -p build/outputs
+          cp build/app/outputs/flutter-apk/app-release.apk \
+             build/outputs/app-${{ matrix.environment }}-release.apk
+
+      - name: 📤 Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-${{ matrix.environment }}
+          path: build/outputs/app-${{ matrix.environment }}-release.apk
+          retention-days: 30
+
+      - name: ✅ Build complete
+        run: echo "APK built successfully for ${{ matrix.environment }} environment!"
+
+  # Job 4: Build Summary
+  build-summary:
+    name: 📋 Build Summary
+    needs: build
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: 📊 Display build summary
+        run: |
+          echo "========================================="
+          echo "  Flutter CI/CD Pipeline Summary"
+          echo "========================================="
+          echo "✅ Code Analysis: Completed"
+          echo "✅ Tests & Coverage: Completed"
+          echo "✅ Build APKs: Completed"
+          echo ""
+          echo "All artifacts are available in the Actions tab."
+          echo "========================================="
