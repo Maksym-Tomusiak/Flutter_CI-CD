@@ -1,0 +1,76 @@
+name: Build Development APK
+
+on:
+  push:
+    branches: [develop]
+    paths-ignore:
+      - "**.md"
+      - "scripts/**"
+  workflow_dispatch:
+
+jobs:
+  build-dev:
+    name: 🏗️ Build Dev APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🐦 Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "stable"
+          channel: "stable"
+          cache: true
+
+      - name: 📦 Install dependencies
+        run: flutter pub get
+
+      - name: 🔍 Verify code quality
+        run: |
+          dart format --output=none --set-exit-if-changed .
+          flutter analyze --fatal-infos
+
+      - name: 🧪 Run tests
+        run: flutter test --coverage
+
+      - name: 📊 Check coverage
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lcov bc
+          chmod +x scripts/check_coverage.sh
+          bash scripts/check_coverage.sh
+
+      - name: 🏗️ Build Development APK
+        run: |
+          flutter build apk \
+            --dart-define=BUILD_ENV=dev \
+            --dart-define=API_URL=https://api-dev.example.com \
+            --dart-define=ENABLE_LOGGING=true \
+            --target=lib/main_dev.dart \
+            --release
+
+      - name: 📦 Rename APK
+        run: |
+          mkdir -p build/outputs
+          cp build/app/outputs/flutter-apk/app-release.apk \
+             build/outputs/app-dev-release.apk
+
+      - name: 📤 Upload Development APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-apk-${{ github.sha }}
+          path: build/outputs/app-dev-release.apk
+          retention-days: 90
+
+      - name: 📊 Build Summary
+        run: |
+          echo "### 🎉 Development Build Complete!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** Development" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "**API URL:** https://api-dev.example.com" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Download the APK from the artifacts section above." >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,108 @@
+name: Build Production APK
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - "v*.*.*"
+    paths-ignore:
+      - "**.md"
+      - "scripts/**"
+  workflow_dispatch:
+
+jobs:
+  build-prod:
+    name: 🏗️ Build Production APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🐦 Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "stable"
+          channel: "stable"
+          cache: true
+
+      - name: 📦 Install dependencies
+        run: flutter pub get
+
+      - name: 🔍 Verify code quality
+        run: |
+          dart format --output=none --set-exit-if-changed .
+          flutter analyze --fatal-infos --fatal-warnings
+
+      - name: 🧪 Run tests
+        run: flutter test --coverage
+
+      - name: 📊 Check coverage threshold
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lcov bc
+          chmod +x scripts/check_coverage.sh
+          bash scripts/check_coverage.sh
+
+      - name: 🏗️ Build Production APK
+        run: |
+          flutter build apk \
+            --dart-define=BUILD_ENV=prod \
+            --dart-define=API_URL=https://api.example.com \
+            --dart-define=ENABLE_LOGGING=false \
+            --target=lib/main_prod.dart \
+            --release
+
+      - name: 📦 Rename APK
+        run: |
+          mkdir -p build/outputs
+          cp build/app/outputs/flutter-apk/app-release.apk \
+             build/outputs/app-prod-release.apk
+
+      - name: 📤 Upload Production APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-apk-${{ github.sha }}
+          path: build/outputs/app-prod-release.apk
+          retention-days: 90
+
+      - name: 📊 Generate Build Info
+        run: |
+          echo "Build Date: $(date)" > build/outputs/build-info.txt
+          echo "Branch: ${{ github.ref_name }}" >> build/outputs/build-info.txt
+          echo "Commit: ${{ github.sha }}" >> build/outputs/build-info.txt
+          echo "Environment: Production" >> build/outputs/build-info.txt
+          echo "API URL: https://api.example.com" >> build/outputs/build-info.txt
+
+      - name: 📤 Upload Build Info
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-info-${{ github.sha }}
+          path: build/outputs/build-info.txt
+          retention-days: 90
+
+      - name: 📊 Build Summary
+        run: |
+          echo "### 🚀 Production Build Complete!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** Production" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "**API URL:** https://api.example.com" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ **Note:** This is a production build. Test thoroughly before deployment." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Download the APK from the artifacts section above." >> $GITHUB_STEP_SUMMARY
+
+      - name: 🏷️ Create Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            build/outputs/app-prod-release.apk
+            build/outputs/build-info.txt
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
